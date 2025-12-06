@@ -9,6 +9,6 @@ A robust Incremental Structure from Motion (SfM) pipeline implemented in Python.
 - Visualization: Open3D, Matplotlib
 
 # OUTPUTS
-<img width="1740" height="1041" alt="Pre_optimzed_output1" src="https://github.com/user-attachments/assets/bb092119-7701-4233-9c15-42fcb8208ff2" />
-
-<img width="1740" height="1041" alt="GTSAM_output1" src="https://github.com/user-attachments/assets/6ccfd0b6-7501-4a03-b80a-640d8012eb58" />
+| Pre-Optimization | Post-Optimization |
+| :---: | :---: |
+| <img src="Outputs/Pre_optimized_output_1.png" width="100%"> | <img src="Outputs/GTSAM_output1.png" width="100%"> |
