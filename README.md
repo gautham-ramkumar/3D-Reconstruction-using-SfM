@@ -15,6 +15,8 @@ A robust Incremental Structure from Motion (SfM) pipeline implemented in Python.
 
 # Video Demo
 
-<video src="Outputs/SfM_Demo.webm" width="800" controls autoplay loop muted>
-  Your browser does not support the video tag.
-</video>
+<div align="center">
+  <video src="Outputs/SfM_Demo.webm" width="100%" controls muted loop playsinline>
+    Your browser does not support the video tag.
+  </video>
+</div>
