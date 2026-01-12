@@ -17,3 +17,5 @@ A robust Incremental Structure from Motion (SfM) pipeline implemented in Python.
 <video src="Outputs/SfM_Demo.webm" width="800" controls autoplay loop muted>
   Your browser does not support the video tag.
 </video>
+
+![Buddha Reconstruction Output](Outputs/SfM_Demo.webm)
