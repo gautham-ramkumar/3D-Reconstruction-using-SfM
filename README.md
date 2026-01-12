@@ -11,6 +11,6 @@ A robust Incremental Structure from Motion (SfM) pipeline implemented in Python.
 # OUTPUTS
 | Pre-Optimization | Post-Optimization |
 | :---: | :---: |
-| <img src="Outputs/Pre_optimized.png" width="100%"> | <img src="Outputs/GTSAM.png" width="100%"> |
+| <img src="Outputs/Pre_Optimized.png" width="100%"> | <img src="Outputs/GTSAM.png" width="100%"> |
 
 
