@@ -14,3 +14,6 @@ A robust Incremental Structure from Motion (SfM) pipeline implemented in Python.
 | <img src="Outputs/Pre_Optimized.png" width="100%"> | <img src="Outputs/GTSAM.png" width="100%"> |
 
 
+<video src="outputs/your_video_filename.mp4" width="800" controls autoplay loop muted>
+  Your browser does not support the video tag.
+</video>
