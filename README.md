@@ -14,11 +14,9 @@ A robust Incremental Structure from Motion (SfM) pipeline implemented in Python.
 | <img src="Outputs/Pre_Optimized.png" width="100%"> | <img src="Outputs/GTSAM.png" width="100%"> |
 
 <div align="center">
-  <iframe width="900" height="506"
-      src="https://www.youtube.com/embed/WeK6MU-wFHA"
-      title="SfM + GTSAM Bundle Adjustment Demo"
-      frameborder="0"
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-      allowfullscreen>
-  </iframe>
+  <h2>Video Demo</h2>
+  <a href="https://www.youtube.com/watch?v=WeK6MU-wFHA">
+    <img src="https://img.youtube.com/vi/WeK6MU-wFHA/maxresdefault.jpg" alt="SfM Buddha Reconstruction Demo" width="900">
+  </a>
+  <p><i>Click the image above to watch the full reconstruction process on YouTube</i></p>
 </div>
