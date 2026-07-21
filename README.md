@@ -41,6 +41,7 @@ Images + intrinsics
 │   └── rng.py             # Reproducible seeding
 ├── buddha_images/         # Input RGB frames
 ├── cameras.txt            # Per-view intrinsics (SIMPLE_RADIAL)
+├── Outputs/               # Reconstruction screenshots
 ├── colmap_exports/        # Exported before/after-BA models
 └── requirements.txt
 ```
@@ -48,21 +49,33 @@ Images + intrinsics
 ## Requirements
 
 - Python 3.10+
-- OpenCV, NumPy, Open3D, GTSAM, Jupyter
-- Optional (learned features): PyTorch (CUDA recommended), [LightGlue](https://github.com/cvg/LightGlue)
+- OpenCV
+- NumPy
+- Open3D
+- GTSAM
+- Jupyter
+
+Optional:
+
+- PyTorch (CUDA recommended)
+- LightGlue + SuperPoint
 
 ```bash
 pip install -r requirements.txt
-# Optional SuperPoint / LightGlue:
+
+# Optional SuperPoint / LightGlue frontend
 pip install git+https://github.com/cvg/LightGlue.git
 ```
 
-COLMAP is only needed if you want to inspect exported models in the COLMAP GUI (`colmap` on `PATH`).
+COLMAP is only required if you want to inspect exported models in the COLMAP GUI.
 
-## Quick start
+---
 
-1. Place images under `buddha_images/` and provide matching `cameras.txt` (COLMAP text format, `SIMPLE_RADIAL`).
-2. Open and run [`SFM.ipynb`](SFM.ipynb) from the project root (kernel working directory = repo root).
+## Quick Start
+
+1. Place your images inside `buddha_images/`.
+2. Provide a matching `cameras.txt` in COLMAP text format (`SIMPLE_RADIAL`).
+3. Open and run `SFM.ipynb`.
 
 ```python
 from sfm import (
@@ -80,14 +93,55 @@ from sfm import (
 )
 
 set_random_seed(0)
+
 images = load_data("buddha_images/")
 intrinsics = load_all_intrinsics("cameras.txt", verbose=False)
-# … matching → tracks → seed → PnP → BA (see notebook)
+
+# Matching
+keypoints, descriptors, matches = extract_features_and_matches(images)
+
+# Tracks
+tracks = build_global_tracks(matches)
+
+# Initialize map
+map_data = initialize_seed_map(
+    images,
+    keypoints,
+    tracks,
+    intrinsics,
+)
+
+# Incremental registration
+map_data = run_pnp_mapping(
+    images,
+    keypoints,
+    tracks,
+    map_data,
+    intrinsics,
+)
+
+# Global retriangulation
+map_data = retriangulate_tracks(
+    tracks,
+    keypoints,
+    map_data,
+    intrinsics,
+)
+
+# Bundle Adjustment
+map_data = run_bundle_adjustment(
+    map_data,
+    intrinsics,
+)
+
+plot_3d_map(map_data)
 ```
 
-### Feature front-end
+---
 
-**Default (SIFT)** — typically cleaner structure on this dataset:
+## Feature Front-End
+
+### Default (SIFT)
 
 ```python
 keypoints, descriptors, matches = extract_features_and_matches(
@@ -98,21 +152,32 @@ keypoints, descriptors, matches = extract_features_and_matches(
 )
 ```
 
-**Optional (SuperPoint + LightGlue)** — denser matches; structure quality can vary:
+### Optional (SuperPoint + LightGlue)
 
 ```python
 from sfm import extract_features_and_matches_superpoint
-keypoints, descriptors, matches = extract_features_and_matches_superpoint(
-    images, max_num_keypoints=4096, window_size=8
+
+keypoints, descriptors, matches = (
+    extract_features_and_matches_superpoint(
+        images,
+        max_num_keypoints=4096,
+        window_size=8,
+    )
 )
 ```
 
-### COLMAP GUI
+---
 
-After a run, models are written to:
+## COLMAP GUI
 
-- `colmap_exports/before_ba`
-- `colmap_exports/after_ba`
+Exported models are written to
+
+```
+colmap_exports/before_ba
+colmap_exports/after_ba
+```
+
+Visualize them with
 
 ```bash
 colmap gui \
@@ -121,28 +186,72 @@ colmap gui \
   --import_path colmap_exports/after_ba
 ```
 
-Exports regenerate `.bin` files from text so the GUI does not load stale binaries.
+The exporter regenerates the binary files to avoid stale `.bin` models.
 
-## Example results
+---
 
-On a 24-view sequence with denser SIFT settings (illustrative; exact counts depend on parameters and seed):
+# Example Results
 
-| Stage | Typical scale |
-|--------|----------------|
-| Images registered | 24 / 24 |
-| Sparse landmarks (pre-BA) | ~5.5k |
-| BA cost reduction | ~60–70% |
-| Final reprojection RMSE | ~3–4 px |
+On a 24-view image sequence with denser SIFT settings (illustrative; exact numbers depend on feature parameters and RANSAC randomness):
 
-Pre/post-BA Open3D screenshots in the repo (`Pre_BA_*.png`, `Post_BA_*.png`) show the recovered geometry and camera frustums.
+| Metric | Value |
+|---------|------:|
+| Registered Images | 24 / 24 |
+| Sparse Landmarks (Pre-BA) | ~5.5k |
+| Bundle Adjustment Cost Reduction | ~60–70% |
+| Final Reprojection RMSE | ~3–4 px |
 
-## Design notes
+## Before Bundle Adjustment
 
-- Intrinsics are treated as known (from `cameras.txt`); radial `k1` is stored but the core solver uses a pinhole `Cal3_S2` model in BA.
-- Matching uses a sliding image window to limit false long-range associations that can corrupt tracks.
-- `set_random_seed(0)` and OpenCV single-threading improve run-to-run reproducibility for RANSAC stages.
-- Bundle adjustment disables verbose cheirality logging for speed on larger landmark sets.
+### View 1
 
-## License
+![](Outputs/Pre_BA_1.png)
 
-Add a license of your choice if you distribute this repository.
+### View 2
+
+![](Outputs/Pre_BA_2.png)
+
+### View 3
+
+![](Outputs/Pre_BA_3.png)
+
+---
+
+## After Bundle Adjustment
+
+### View 1
+
+![](Outputs/Post_BA_1.png)
+
+### View 2
+
+![](Outputs/Post_BA_2.png)
+
+### View 3
+
+![](Outputs/Post_BA_3.png)
+
+The figures illustrate the recovered sparse point cloud and estimated camera trajectory before and after bundle adjustment. Bundle adjustment jointly optimizes camera poses and 3D landmarks by minimizing reprojection error, producing a more geometrically consistent reconstruction.
+
+---
+
+## Design Notes
+
+- Camera intrinsics are assumed to be known from `cameras.txt`.
+- The pipeline supports `SIMPLE_RADIAL` intrinsics, while bundle adjustment currently optimizes using a pinhole `Cal3_S2` camera model.
+- Pairwise matching uses a sliding image window to reduce incorrect long-range correspondences.
+- Multi-view feature tracks are built using a Union-Find data structure.
+- Incremental mapping uses RANSAC-based PnP followed by retriangulation.
+- Bundle adjustment uses robust Huber projection factors with Levenberg–Marquardt optimization in GTSAM.
+- `set_random_seed(0)` and OpenCV single-threading improve reproducibility across RANSAC stages.
+
+---
+
+## Future Improvements
+
+- Camera intrinsic optimization during bundle adjustment.
+- Loop closure and pose graph optimization.
+- Dense multi-view stereo reconstruction.
+- GPU-accelerated feature extraction and matching.
+- Hierarchical or parallel SfM for large-scale datasets.
+- Integration with learned feature descriptors and differentiable bundle adjustment.
