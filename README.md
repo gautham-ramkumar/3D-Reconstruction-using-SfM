@@ -111,10 +111,12 @@ On a 24-view image sequence with denser SIFT settings (illustrative; exact numbe
 | Final Reprojection RMSE | ~3–4 px |
 
 ### Results
+#### View 1
+![](Assets/Ground_Truth.png)
 
-| View 1 | View 2 | View 3 |
+| View 1 | View 2 |
 |:-------:|:-------:|:-------:|
-| ![](Assets/Ground_Truth.png) | ![](Assets/Pre_BA.png) | ![](Assets/Post_BA.png) |
+| ![](Assets/Pre_BA.png) | ![](Assets/Post_BA.png) |
 
 
 The figures illustrate the recovered sparse point cloud and estimated camera trajectory before and after bundle adjustment. Bundle adjustment jointly optimizes camera poses and 3D landmarks by minimizing reprojection error, producing a more geometrically consistent reconstruction.
