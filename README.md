@@ -115,7 +115,7 @@ On a 24-view image sequence with denser SIFT settings (illustrative; exact numbe
 ![](Assets/Ground_Truth.png)
 
 | View 1 | View 2 |
-|:-------:|:-------:|:-------:|
+|:-------:|:-------:|
 | ![](Assets/Pre_BA.png) | ![](Assets/Post_BA.png) |
 
 
