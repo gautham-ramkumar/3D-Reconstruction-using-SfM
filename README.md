@@ -111,10 +111,10 @@ On a 24-view image sequence with denser SIFT settings (illustrative; exact numbe
 | Final Reprojection RMSE | ~3–4 px |
 
 ### Results
-#### View 1
+#### Ground Truth
 ![](Assets/Ground_Truth.png)
 
-| View 1 | View 2 |
+| Pre-BA | Post-BA |
 |:-------:|:-------:|
 | ![](Assets/Pre_BA.png) | ![](Assets/Post_BA.png) |
 
