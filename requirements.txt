@@ -1,0 +1,12 @@
+numpy
+opencv-python
+matplotlib
+open3d
+gtsam
+jupyter
+ipykernel
+torch
+torchvision
+kornia
+# SuperPoint + LightGlue (install from GitHub):
+#   pip install git+https://github.com/cvg/LightGlue.git
