@@ -1,116 +1,129 @@
 # Incremental Structure-from-Motion
 
-A from-scratch **incremental sparse SfM** pipeline that reconstructs camera poses and a 3D landmark cloud from a monocular image sequence. The geometry stack (fundamental / essential matrices, triangulation, PnP, tracks) is implemented in Python; bundle adjustment uses **GTSAM**.
+An incremental sparse **Structure-from-Motion** pipeline that recovers camera poses and a 3D point cloud from a monocular image sequence. The geometry core (fundamental and essential matrices, pose recovery, triangulation, multi-view tracks) is implemented from scratch, and the repository contains two implementations:
 
-A **C++17 port** in [`cpp/`](cpp/) reimplements the same pipeline with **Ceres** bundle adjustment, fixes several issues found along the way, and reaches **0.39 px** reprojection RMSE vs ~3.4 px for the Python version (see [C++ implementation](#c-implementation-ceres)).
+- **Python** (`sfm/`, `SFM.ipynb`): the reference implementation, with bundle adjustment in **GTSAM**.
+- **C++17** (`cpp/`): a module-by-module port with bundle adjustment in **Ceres**, a command-line pipeline, and a test for every module.
+
+On a 24-image sequence, both register all 24 cameras. The C++ pipeline reaches **0.39 px** final reprojection RMSE (Python: 3.36 px) and leaves no points behind any camera.
+
+<p align="center">
+  <img src="Assets/cpp_reconstruction.png" width="760" alt="Input frame and the C++ sparse reconstruction seen from the cameras">
+</p>
+
+## Contents
+
+- [Results](#results)
+- [Pipeline](#pipeline)
+- [Repository structure](#repository-structure)
+- [Getting started](#getting-started)
+- [Viewing results in COLMAP](#viewing-results-in-colmap)
+- [Implementation notes](#implementation-notes)
+- [Limitations and future work](#limitations-and-future-work)
+
+## Results
+
+Dataset: 24 frames (1080 × 1920) of a carved wooden Buddha head, with per-frame `SIMPLE_RADIAL` intrinsics in COLMAP format (`cameras.txt`).
+
+| Metric | Python (GTSAM) | C++ (Ceres) |
+|---|---:|---:|
+| Registered images | 24 / 24 | 24 / 24 |
+| 3D points before / after BA | 5,505 / 5,490 | 4,102 / 4,080 |
+| Points behind a camera before BA | 15 | 0 |
+| BA cost reduction | 66.7% | 76.8% (round 1) |
+| Final reprojection RMSE, √(cost / 2N) | 3.36 px | 0.39 px |
+| Reprojection error after BA, median / p90 | — | 0.50 / 1.37 px |
+| Bundle adjustment time | — | 0.33 s |
+| End-to-end runtime | — | ≈ 32 s (mostly SIFT matching) |
+
+The two versions optimize different observation sets: the C++ pipeline removes outliers and inconsistent tracks before and during bundle adjustment. The RMSE gap therefore reflects that cleanup as well as the optimizer. The C++ version keeps fewer points because it rejects points triangulated from nearly identical viewpoints, whose depth is unreliable (see [Implementation notes](#implementation-notes)).
+
+### Bundle adjustment (C++)
+
+![C++ reconstruction before and after bundle adjustment](Assets/cpp_before_after_ba.png)
+
+Top and front views in the cameras' frame. Red triangles are cameras; blue circles mark their positions before bundle adjustment. BA levels the shelf edge and the back wall, tightens the head (median point distance from the center 4.44 → 3.46), and pulls back cameras 0–3, which had drifted by up to 1.8× the spacing between neighbouring cameras at the end of the longest registration chain. The median reprojection error falls from 1.04 px to 0.50 px.
+
+### Minimum triangulation angle (C++)
+
+![Reconstruction with and without the triangulation-angle filter](Assets/cpp_angle_filter.png)
+
+Cameras 0–3 are nearly co-located, so points triangulated mainly from them have almost no parallax and smear along their viewing rays (the diagonal streak in the top-left panel). A 1.5° minimum triangulation angle removes them: no point lies beyond 7× the median distance from the cloud center, compared with 29 beyond 10× without the filter. It also removes the ill-conditioning these points caused in bundle adjustment, which converges in 34 iterations instead of 96.
+
+### Bundle adjustment (Python)
+
+| Before BA | After BA |
+|:---:|:---:|
+| ![Python reconstruction before BA](Assets/Pre_BA.png) | ![Python reconstruction after BA](Assets/Post_BA.png) |
 
 ## Pipeline
 
 ```text
 Images + intrinsics
-  → SIFT features & pairwise matching (RANSAC F)
-  → Global tracks (Union-Find)
-  → Seed pair (E-matrix, cheirality, triangulation)
-  → Bidirectional PnP registration + map growth
-  → Retriangulation of leftover tracks
-  → GTSAM bundle adjustment
-  → Open3D visualization / COLMAP export
+  → SIFT features and pairwise matching, verified by RANSAC on F
+  → Multi-view tracks (union-find)
+  → Seed pair: essential matrix, cheirality check, triangulation
+  → Incremental registration: PnP-RANSAC forward and backward from the seed, map growth
+  → Retriangulation of remaining tracks
+  → Bundle adjustment (GTSAM in Python, Ceres in C++)
+  → Export: COLMAP sparse model, point cloud (Open3D in Python, PLY in C++)
 ```
 
-**Core stages**
+1. **Feature matching.** SIFT keypoints, Lowe ratio test, and geometric verification with a RANSAC fundamental matrix scored by Sampson error. Pairs are matched within a sliding window of 8 frames. The Python version also offers a SuperPoint + LightGlue front end.
+2. **Two-view geometry.** Normalized 8-point algorithm, rank-2 enforcement, essential matrix E = Kⱼᵀ F Kᵢ, the four (R, t) hypotheses, and a cheirality check to pick the valid one.
+3. **Tracks.** Pairwise matches are merged into multi-view tracks with union-find.
+4. **Incremental mapping.** The seed pair defines the world frame. Each new image is registered by PnP-RANSAC against already triangulated tracks, then its unmapped tracks are triangulated against every registered neighbour. Remaining tracks are retriangulated from their widest-baseline pair of views.
+5. **Bundle adjustment.** Joint optimization of all camera poses and 3D points with a robust Huber loss and Levenberg–Marquardt.
+6. **Export.** COLMAP text and binary models for inspection in the COLMAP GUI, plus a colored point cloud.
 
-1. **Feature matching** — SIFT + Lowe ratio test + RANSAC fundamental matrix (Sampson error). Optional SuperPoint + LightGlue front-end.
-2. **Two-view geometry** — normalized 8-point `F`, essential matrix `E = Kⱼᵀ F Kᵢ`, pose hypotheses, cheirality selection.
-3. **Incremental mapping** — seed triangulation, `solvePnPRansac` localization, neighbor triangulation, global retriangulation.
-4. **Bundle adjustment** — robust (Huber) projection factors in GTSAM; joint pose + landmark LM optimization.
-5. **Visualization / export** — Open3D viewer; COLMAP-compatible sparse models for the COLMAP GUI.
-
-## Repository layout
+## Repository structure
 
 ```text
 .
-├── SFM.ipynb              # End-to-end runner notebook
-├── sfm/                   # Pipeline package
-│   ├── io.py              # Image + COLMAP cameras.txt loading
-│   ├── geometry.py        # F / E / pose / triangulation
-│   ├── matching.py        # SIFT matching
-│   ├── matching_superpoint.py  # Optional SuperPoint + LightGlue
-│   ├── tracks.py          # Multi-view tracks
-│   ├── mapping.py         # Seed, PnP expansion, retriangulation
-│   ├── ba.py              # GTSAM bundle adjustment
-│   ├── viz.py             # Open3D visualization
-│   ├── colmap_export.py   # Export for COLMAP GUI
-│   └── rng.py             # Reproducible seeding
-├── cpp/                   # C++17 port (Ceres BA); see cpp/README.md
-│   ├── include/sfm/       # Headers, one per module
-│   ├── src/               # Modules + main.cpp (sfm_pipeline)
-│   ├── tests/             # Per-module tests (synthetic + real data)
+├── SFM.ipynb                  # Python pipeline, end to end
+├── sfm/                       # Python package
+│   ├── io.py                  # Image and cameras.txt loading
+│   ├── geometry.py            # F, E, pose recovery, triangulation
+│   ├── matching.py            # SIFT matching and verification
+│   ├── matching_superpoint.py # Optional SuperPoint + LightGlue front end
+│   ├── tracks.py              # Multi-view tracks (union-find)
+│   ├── mapping.py             # Seed, PnP registration, retriangulation
+│   ├── ba.py                  # GTSAM bundle adjustment
+│   ├── viz.py                 # Open3D visualization
+│   ├── colmap_export.py       # COLMAP model export
+│   └── rng.py                 # Reproducible seeding
+├── cpp/                       # C++17 implementation (see cpp/README.md)
+│   ├── include/sfm/           # One header per module
+│   ├── src/                   # Modules and main.cpp (sfm_pipeline)
+│   ├── tests/                 # Per-module tests
 │   └── CMakeLists.txt
-├── buddha_images/         # Input RGB frames
-├── cameras.txt            # Per-view intrinsics (SIMPLE_RADIAL)
-├── Assets/                # Reconstruction figures
-├── colmap_exports/        # Exported before/after-BA models
-└── requirements.txt
+├── buddha_images/             # Input frames
+├── cameras.txt                # Per-frame intrinsics (COLMAP SIMPLE_RADIAL)
+├── Assets/                    # Figures
+└── requirements.txt           # Python dependencies
 ```
 
-## Requirements
+## Getting started
 
-- Python 3.10+
-- OpenCV
-- NumPy
-- Open3D
-- GTSAM
-- Jupyter
+### Python
 
-Optional:
-
-- PyTorch (CUDA recommended)
-- LightGlue + SuperPoint
+Requires Python 3.10+. Install the dependencies, then run `SFM.ipynb` from the repository root:
 
 ```bash
 pip install -r requirements.txt
+```
 
-# Optional SuperPoint / LightGlue frontend
+The optional SuperPoint + LightGlue front end needs PyTorch and:
+
+```bash
 pip install git+https://github.com/cvg/LightGlue.git
 ```
 
-COLMAP is only required if you want to inspect exported models in the COLMAP GUI.
+The notebook writes COLMAP models to `colmap_exports/before_ba` and `colmap_exports/after_ba`.
 
----
+### C++
 
-## Quick Start
-
-1. Place your images inside `buddha_images/`.
-2. Provide a matching `cameras.txt` in COLMAP text format (`SIMPLE_RADIAL`).
-3. Open and run `SFM.ipynb`.
-
-## COLMAP GUI
-
-Exported models are written to
-
-```
-colmap_exports/before_ba
-colmap_exports/after_ba
-```
-
-Visualize them with
-
-```bash
-colmap gui \
-  --database_path buddha_images/database.db \
-  --image_path buddha_images \
-  --import_path colmap_exports/after_ba
-```
-
-The exporter regenerates the binary files to avoid stale `.bin` models.
-
----
-
-## C++ implementation (Ceres)
-
-[`cpp/`](cpp/) is a module-by-module C++17 port of the Python package. Two-view geometry (normalized 8-point, RANSAC with Sampson error, essential matrix, pose decomposition, DLT triangulation) is written from scratch on Eigen; OpenCV provides SIFT, matching and `solvePnPRansac`; bundle adjustment uses Ceres. Every module has its own test against synthetic ground truth and the real data. Full details are in [`cpp/README.md`](cpp/README.md).
-
-Requires OpenCV 4, Eigen 3.3+, Ceres 2.x and CMake 3.16+. From the repository root:
+Requires a C++17 compiler, CMake 3.16+, OpenCV 4, Eigen 3.3+ and Ceres 2.x. Build and run from the repository root:
 
 ```bash
 cmake -S cpp -B cpp/build && cmake --build cpp/build -j
@@ -120,75 +133,57 @@ cmake -S cpp -B cpp/build && cmake --build cpp/build -j
 ./cpp/build/sfm_pipeline --data-dir .
 ```
 
-The run takes about 33 s and writes COLMAP models (`before_ba/`, `after_ba/`) and colored PLY point clouds to `colmap_exports_cpp/`.
+This writes COLMAP models (`before_ba/`, `after_ba/`) and colored PLY point clouds to `colmap_exports_cpp/`. Common options:
 
-**Main changes from the Python version**
+| Option | Effect |
+|---|---|
+| `--seed I J` / `--auto-seed` | Seed pair (default 15 16), or select it automatically by parallax |
+| `--min-tri-angle A` | Minimum triangulation angle in degrees (default 1.5; 0 disables) |
+| `--no-undistort` | Use raw keypoint positions instead of removing lens distortion |
+| `--gui before\|after` | Open the chosen model in the COLMAP GUI when finished |
 
-- Keypoints are undistorted (SIMPLE_RADIAL `k1`) before matching, so the pinhole model used everywhere downstream is correct.
-- F is refit on all RANSAC inliers; tracks with two keypoints in the same image are dropped.
-- Map growth checks depth in both cameras (the Python version tested world `z`), reprojection error, and a 1.5° minimum triangulation angle.
-- Bundle adjustment removes outliers (> 10 px), solves, removes > 4 px, and solves again, with the seed camera anchored and the scale fixed.
+The full option list, the per-module tests and a detailed comparison with the Python version are in [`cpp/README.md`](cpp/README.md).
 
-**Results on the 24-image Buddha set**
+### Using your own images
 
-| Metric | Python (GTSAM) | C++ (Ceres) |
-|---|---:|---:|
-| Registered images | 24 / 24 | 24 / 24 |
-| Landmarks after BA | 5,490 | 4,080 |
-| Tracks with negative depth before BA | 15 | 0 |
-| Final reprojection RMSE (same formula) | 3.36 px | 0.39 px |
-| Median / p90 reprojection error after BA | – | 0.50 / 1.37 px |
-| Bundle adjustment time | – | 0.33 s |
+Place the frames in `buddha_images/` (PNG, processed in filename order) and provide a matching `cameras.txt` in COLMAP text format with one `SIMPLE_RADIAL` camera per frame, where camera *i* + 1 belongs to the *i*-th image.
 
-The RMSE gap reflects the outlier filtering and track cleanup as well as the optimizer, since the two versions optimize different observation sets. The C++ version keeps fewer landmarks because the triangulation-angle filter removes points seen from nearly the same viewpoint, whose depth is unreliable.
+## Viewing results in COLMAP
 
-![C++ reconstruction before and after bundle adjustment](Assets/cpp_before_after_ba.png)
+COLMAP is optional and only needed to inspect the exported models. Use `colmap_exports/after_ba` for the Python output or `colmap_exports_cpp/after_ba` for the C++ output:
 
-*C++ reconstruction before (top) and after (bottom) bundle adjustment, from above and from the cameras. Red triangles are cameras; blue circles mark the pre-BA camera positions. BA straightens the flat background structure and pulls in the drifted cameras 0–3.*
+```bash
+colmap gui \
+  --database_path buddha_images/database.db \
+  --image_path buddha_images \
+  --import_path colmap_exports_cpp/after_ba \
+  --Render.min_track_len 2 \
+  --Render.max_error 10
+```
 
----
+`--Render.min_track_len 2` shows points observed in only two images, which COLMAP hides by default. Both exporters regenerate the binary files so that COLMAP never reads a stale `.bin` model.
 
-# Example Results
+## Implementation notes
 
-On a 24-view image sequence with denser SIFT settings (illustrative; exact numbers depend on feature parameters and RANSAC randomness):
+- **Intrinsics** are fixed and read from `cameras.txt`. The C++ pipeline removes the `SIMPLE_RADIAL` distortion from every keypoint before matching, so the pinhole model used by F estimation, PnP, triangulation and bundle adjustment is exact. The Python pipeline uses pinhole intrinsics (`Cal3_S2`) throughout.
+- **Reproducibility.** Both pipelines fix the random seed and run OpenCV single-threaded; repeated C++ runs produce identical results.
+- **Gauge.** The C++ bundle adjustment holds the seed camera fixed and fixes the overall scale with one translation component of the second seed camera. The Python version anchors one camera with a tight prior.
 
-| Metric | Value |
-|---------|------:|
-| Registered Images | 24 / 24 |
-| Sparse Landmarks (Pre-BA) | ~5.5k |
-| Bundle Adjustment Cost Reduction | ~60–70% |
-| Final Reprojection RMSE | ~3–4 px |
+The C++ port also makes the following changes to the Python algorithm:
 
-### Results
-#### Ground Truth
-![](Assets/Ground_Truth.png)
+| Change | Effect on this dataset |
+|---|---|
+| Depth is checked in both cameras when new points are triangulated (the Python version tests world *z*) | Points behind a camera before BA: 15 → 0 |
+| Tracks containing two keypoints from the same image are dropped | Observations with > 10 px error before BA halved |
+| F is refit on all RANSAC inliers | Recall on a synthetic benchmark 0.895 → 0.948, with no extra outliers |
+| New views need ≥ 12 PnP inliers; new points pass a reprojection check | Poorly supported poses and points are rejected |
+| 1.5° minimum triangulation angle | Low-parallax points removed; BA converges in 34 instead of 96 iterations |
+| BA in two rounds: remove > 10 px, solve, remove > 4 px, solve again | Outliers no longer bias the solution |
 
-| Pre-BA | Post-BA |
-|:-------:|:-------:|
-| ![](Assets/Pre_BA.png) | ![](Assets/Post_BA.png) |
+## Limitations and future work
 
-
-The figures illustrate the recovered sparse point cloud and estimated camera trajectory before and after bundle adjustment. Bundle adjustment jointly optimizes camera poses and 3D landmarks by minimizing reprojection error, producing a more geometrically consistent reconstruction.
-
----
-
-## Design Notes
-
-- Camera intrinsics are assumed to be known from `cameras.txt`.
-- The pipeline supports `SIMPLE_RADIAL` intrinsics, while bundle adjustment currently optimizes using a pinhole `Cal3_S2` camera model. The C++ port undistorts keypoints first, so its pinhole BA matches the lens model.
-- Pairwise matching uses a sliding image window to reduce incorrect long-range correspondences.
-- Multi-view feature tracks are built using a Union-Find data structure.
-- Incremental mapping uses RANSAC-based PnP followed by retriangulation.
-- Bundle adjustment uses robust Huber projection factors with Levenberg–Marquardt optimization in GTSAM.
-- `set_random_seed(0)` and OpenCV single-threading improve reproducibility across RANSAC stages.
-
----
-
-## Future Improvements
-
-- Camera intrinsic optimization during bundle adjustment.
-- Loop closure and pose graph optimization.
-- Dense multi-view stereo reconstruction.
-- GPU-accelerated feature extraction and matching.
-- Hierarchical or parallel SfM for large-scale datasets.
-- Integration with learned feature descriptors and differentiable bundle adjustment.
+- Intrinsics are not refined during bundle adjustment.
+- No loop closure or global pose-graph optimization; drift is corrected only by bundle adjustment.
+- Sparse reconstruction only; dense multi-view stereo is not included.
+- The seed pair is fixed by default; automatic selection is available in the C++ pipeline but not tuned.
+- Learned features (SuperPoint + LightGlue) are available only in the Python version.
